@@ -11,6 +11,16 @@
 unsigned long lastActivityTime = 0;
 
 // Axes
+#define AXIS_DEADZONE_RAW 0
+#define AXIS_DEADZONE_MAPPED 500
+
+#define RAW_RANGE_MIN 0
+#define RAW_RANGE_MAX 4095
+#define RAW_CENTER 2048
+
+#define AXIS_RANGE_MIN -32767
+#define AXIS_RANGE_MAX 32767
+
 #define PIN_AXIS_ROLL 13
 #define PIN_AXIS_PITCH 12
 #define PIN_AXIS_THROTTLE 14
@@ -58,7 +68,7 @@ bool batteryFirstReport = true;
 byte physicalButtons[NUMBER_OF_BUTTONS] = {1, 2, 3, 4};
 bool statusChanged = false;
 
-BleGamepad bleGamepad("Flysky i6X", "odevsa", 100);
+BleGamepad bleGamepad("Flysky i6X", "FlySky", 100);
 
 void resetActivityTimer() { lastActivityTime = millis(); }
 
@@ -97,13 +107,13 @@ void loadButtons()
 
 // Axes handling
 const int AXIS_COUNT = 6;
-int lastAxisValue[AXIS_COUNT] = {0, 0, 0, 0, 0, 0};
-const int AXIS_DEADZONE = 4;
+long lastAxisValue[AXIS_COUNT] = {0, 0, 0, 0, 0, 0};
 
-int mapAxis(int raw)
-{
-  int v = map(raw, 0, 4095, -127, 127);
-  return constrain(v, -127, 127);
+int16_t mapAxis(int raw) {
+  int delta = raw - RAW_CENTER;
+  if (abs(delta) < AXIS_DEADZONE_RAW) return 0;
+
+  return (int16_t) map(raw, RAW_RANGE_MIN, RAW_RANGE_MAX, AXIS_RANGE_MIN, AXIS_RANGE_MAX);
 }
 
 void loadAxes()
@@ -120,22 +130,29 @@ void loadAxes()
   int axisVraRaw = mapAxis(analogRead(PIN_AXIS_VRA));
   int axisVrbRaw = mapAxis(analogRead(PIN_AXIS_VRB));
 
-  int axisRoll = AXIS_ROLL_INVERTED ? -axisRollRaw : axisRollRaw;
-  int axisPitch = AXIS_PITCH_INVERTED ? -axisPitchRaw : axisPitchRaw;
-  int axisThrottle = AXIS_THROTTLE_INVERTED ? -axisThrottleRaw : axisThrottleRaw;
-  int axisYaw = AXIS_YAW_INVERTED ? -axisYawRaw : axisYawRaw;
-  int axisVra = AXIS_VRA_INVERTED ? -axisVraRaw : axisVraRaw;
-  int axisVrb = AXIS_VRB_INVERTED ? -axisVrbRaw : axisVrbRaw;
+  int axisRoll = AXIS_ROLL_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisRollRaw) : axisRollRaw;
+  int axisPitch = AXIS_PITCH_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisPitchRaw) : axisPitchRaw;
+  int axisThrottle = AXIS_THROTTLE_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisThrottleRaw) : axisThrottleRaw;
+  int axisYaw = AXIS_YAW_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisYawRaw) : axisYawRaw;
+  int axisVra = AXIS_VRA_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisVraRaw) : axisVraRaw;
+  int axisVrb = AXIS_VRB_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisVrbRaw) : axisVrbRaw;
 
-  if (abs(axisRoll - lastAxisValue[0]) > AXIS_DEADZONE ||
-      abs(axisPitch - lastAxisValue[1]) > AXIS_DEADZONE ||
-      abs(axisThrottle - lastAxisValue[2]) > AXIS_DEADZONE ||
-      abs(axisYaw - lastAxisValue[3]) > AXIS_DEADZONE ||
-      abs(axisVra - lastAxisValue[4]) > AXIS_DEADZONE ||
-      abs(axisVrb - lastAxisValue[5]) > AXIS_DEADZONE)
+    if (labs(axisRoll - lastAxisValue[0]) > AXIS_DEADZONE_MAPPED ||
+      labs(axisPitch - lastAxisValue[1]) > AXIS_DEADZONE_MAPPED ||
+      labs(axisThrottle - lastAxisValue[2]) > AXIS_DEADZONE_MAPPED ||
+      labs(axisYaw - lastAxisValue[3]) > AXIS_DEADZONE_MAPPED ||
+      labs(axisVra - lastAxisValue[4]) > AXIS_DEADZONE_MAPPED ||
+      labs(axisVrb - lastAxisValue[5]) > AXIS_DEADZONE_MAPPED)
   {
     resetActivityTimer();
-    bleGamepad.setAxes(axisRoll, axisPitch, axisThrottle, axisYaw, axisVra, axisVrb);
+    bleGamepad.setAxes(
+      axisRoll,
+      axisPitch,
+      axisThrottle,
+      axisYaw,
+      axisVra,
+      axisVrb
+    );
     statusChanged = true;
 
     lastAxisValue[0] = axisRoll;
@@ -286,7 +303,10 @@ void setup()
   bleGamepadConfig.setControllerType(CONTROLLER_TYPE_JOYSTICK);
   bleGamepadConfig.setButtonCount(NUMBER_OF_BUTTONS);
   bleGamepadConfig.setHatSwitchCount(0);
-  bleGamepadConfig.setWhichAxes(true, true, true, true, true, true, false, false); // X, Y, Z, RX, RY, RZ only
+  bleGamepadConfig.setAxesMin(AXIS_RANGE_MIN);
+  bleGamepadConfig.setAxesMax(AXIS_RANGE_MAX);
+  bleGamepadConfig.setWhichAxes(true, true, true, true, true, true, false, false);
+
   bleGamepad.begin(&bleGamepadConfig);
 
   resetActivityTimer();
@@ -300,4 +320,7 @@ void loop()
   sendReport();
 
   delay(10);
+#ifdef DEBUG
+  delay(100);
+#endif
 }
