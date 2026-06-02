@@ -12,14 +12,16 @@ unsigned long lastActivityTime = 0;
 
 // Axes
 #define AXIS_DEADZONE_RAW 0
-#define AXIS_DEADZONE_MAPPED 500
+#define AXIS_DEADZONE_MAPPED 250
+#define AXIS_SMOOTHING_ALPHA 0.40f
+#define AXIS_AMOUNT 6
 
-#define RAW_RANGE_MIN 0
-#define RAW_RANGE_MAX 4095
-#define RAW_CENTER 2048
+#define AXIS_INPUT_MIN 0
+#define AXIS_INPUT_MAX 4095
+#define AXIS_INPUT_CENTER 2048
 
-#define AXIS_RANGE_MIN -32767
-#define AXIS_RANGE_MAX 32767
+#define AXIS_OUTPUT_MIN -32767
+#define AXIS_OUTPUT_MAX 32767
 
 #define PIN_AXIS_ROLL 13
 #define PIN_AXIS_PITCH 12
@@ -106,36 +108,43 @@ void loadButtons()
 }
 
 // Axes handling
-const int AXIS_COUNT = 6;
-long lastAxisValue[AXIS_COUNT] = {0, 0, 0, 0, 0, 0};
+long lastAxisValue[AXIS_AMOUNT] = {0, 0, 0, 0, 0, 0};
+float smoothedRawAxis[AXIS_AMOUNT] = {AXIS_INPUT_CENTER, AXIS_INPUT_CENTER, AXIS_INPUT_CENTER, AXIS_INPUT_CENTER, AXIS_INPUT_CENTER, AXIS_INPUT_CENTER};
 
 int16_t mapAxis(int raw) {
-  int delta = raw - RAW_CENTER;
+  int delta = raw - AXIS_INPUT_CENTER;
   if (abs(delta) < AXIS_DEADZONE_RAW) return 0;
 
-  return (int16_t) map(raw, RAW_RANGE_MIN, RAW_RANGE_MAX, AXIS_RANGE_MIN, AXIS_RANGE_MAX);
+  return (int16_t) map(raw, AXIS_INPUT_MIN, AXIS_INPUT_MAX, AXIS_OUTPUT_MIN, AXIS_OUTPUT_MAX);
 }
 
 void loadAxes()
 {
-#ifdef DEBUG
-  Serial.printf("Raw Axis Readings: ROLL=%d, PITCH=%d, THROTTLE=%d, YAW=%d, VRA=%d, VRB=%d\n",
-                analogRead(PIN_AXIS_ROLL), analogRead(PIN_AXIS_PITCH), analogRead(PIN_AXIS_THROTTLE),
-                analogRead(PIN_AXIS_YAW), analogRead(PIN_AXIS_VRA), analogRead(PIN_AXIS_VRB));
-#endif
-  int axisRollRaw = mapAxis(analogRead(PIN_AXIS_ROLL));
-  int axisPitchRaw = mapAxis(analogRead(PIN_AXIS_PITCH));
-  int axisThrottleRaw = mapAxis(analogRead(PIN_AXIS_THROTTLE));
-  int axisYawRaw = mapAxis(analogRead(PIN_AXIS_YAW));
-  int axisVraRaw = mapAxis(analogRead(PIN_AXIS_VRA));
-  int axisVrbRaw = mapAxis(analogRead(PIN_AXIS_VRB));
+  smoothedRawAxis[0] = AXIS_SMOOTHING_ALPHA * analogRead(PIN_AXIS_ROLL)     + (1.0f - AXIS_SMOOTHING_ALPHA) * smoothedRawAxis[0];
+  smoothedRawAxis[1] = AXIS_SMOOTHING_ALPHA * analogRead(PIN_AXIS_PITCH)    + (1.0f - AXIS_SMOOTHING_ALPHA) * smoothedRawAxis[1];
+  smoothedRawAxis[2] = AXIS_SMOOTHING_ALPHA * analogRead(PIN_AXIS_THROTTLE) + (1.0f - AXIS_SMOOTHING_ALPHA) * smoothedRawAxis[2];
+  smoothedRawAxis[3] = AXIS_SMOOTHING_ALPHA * analogRead(PIN_AXIS_YAW)      + (1.0f - AXIS_SMOOTHING_ALPHA) * smoothedRawAxis[3];
+  smoothedRawAxis[4] = AXIS_SMOOTHING_ALPHA * analogRead(PIN_AXIS_VRA)      + (1.0f - AXIS_SMOOTHING_ALPHA) * smoothedRawAxis[4];
+  smoothedRawAxis[5] = AXIS_SMOOTHING_ALPHA * analogRead(PIN_AXIS_VRB)      + (1.0f - AXIS_SMOOTHING_ALPHA) * smoothedRawAxis[5];
 
-  int axisRoll = AXIS_ROLL_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisRollRaw) : axisRollRaw;
-  int axisPitch = AXIS_PITCH_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisPitchRaw) : axisPitchRaw;
-  int axisThrottle = AXIS_THROTTLE_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisThrottleRaw) : axisThrottleRaw;
-  int axisYaw = AXIS_YAW_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisYawRaw) : axisYawRaw;
-  int axisVra = AXIS_VRA_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisVraRaw) : axisVraRaw;
-  int axisVrb = AXIS_VRB_INVERTED ? (AXIS_RANGE_MAX + AXIS_RANGE_MIN - axisVrbRaw) : axisVrbRaw;
+#ifdef DEBUG
+  Serial.printf("Smoothed Axis Readings: ROLL=%d, PITCH=%d, THROTTLE=%d, YAW=%d, VRA=%d, VRB=%d\n",
+                (int)smoothedRawAxis[0], (int)smoothedRawAxis[1], (int)smoothedRawAxis[2],
+                (int)smoothedRawAxis[3], (int)smoothedRawAxis[4], (int)smoothedRawAxis[5]);
+#endif
+  int axisRollRaw = mapAxis((int)smoothedRawAxis[0]);
+  int axisPitchRaw = mapAxis((int)smoothedRawAxis[1]);
+  int axisThrottleRaw = mapAxis((int)smoothedRawAxis[2]);
+  int axisYawRaw = mapAxis((int)smoothedRawAxis[3]);
+  int axisVraRaw = mapAxis((int)smoothedRawAxis[4]);
+  int axisVrbRaw = mapAxis((int)smoothedRawAxis[5]);
+
+  int axisRoll = AXIS_ROLL_INVERTED ? (AXIS_OUTPUT_MAX + AXIS_OUTPUT_MIN - axisRollRaw) : axisRollRaw;
+  int axisPitch = AXIS_PITCH_INVERTED ? (AXIS_OUTPUT_MAX + AXIS_OUTPUT_MIN - axisPitchRaw) : axisPitchRaw;
+  int axisThrottle = AXIS_THROTTLE_INVERTED ? (AXIS_OUTPUT_MAX + AXIS_OUTPUT_MIN - axisThrottleRaw) : axisThrottleRaw;
+  int axisYaw = AXIS_YAW_INVERTED ? (AXIS_OUTPUT_MAX + AXIS_OUTPUT_MIN - axisYawRaw) : axisYawRaw;
+  int axisVra = AXIS_VRA_INVERTED ? (AXIS_OUTPUT_MAX + AXIS_OUTPUT_MIN - axisVraRaw) : axisVraRaw;
+  int axisVrb = AXIS_VRB_INVERTED ? (AXIS_OUTPUT_MAX + AXIS_OUTPUT_MIN - axisVrbRaw) : axisVrbRaw;
 
     if (labs(axisRoll - lastAxisValue[0]) > AXIS_DEADZONE_MAPPED ||
       labs(axisPitch - lastAxisValue[1]) > AXIS_DEADZONE_MAPPED ||
@@ -303,8 +312,8 @@ void setup()
   bleGamepadConfig.setControllerType(CONTROLLER_TYPE_JOYSTICK);
   bleGamepadConfig.setButtonCount(NUMBER_OF_BUTTONS);
   bleGamepadConfig.setHatSwitchCount(0);
-  bleGamepadConfig.setAxesMin(AXIS_RANGE_MIN);
-  bleGamepadConfig.setAxesMax(AXIS_RANGE_MAX);
+  bleGamepadConfig.setAxesMin(AXIS_OUTPUT_MIN);
+  bleGamepadConfig.setAxesMax(AXIS_OUTPUT_MAX);
   bleGamepadConfig.setWhichAxes(true, true, true, true, true, true, false, false);
 
   bleGamepad.begin(&bleGamepadConfig);
